@@ -19,7 +19,7 @@ app.get("/blocks", (req, res) => {
 });
 
 app.post("/blocks", (req, res) => {
-  const data = req.body;
+  const { data } = req.body;
   const newBlock = createNewBlock(data);
   res.send(newBlock);
 });

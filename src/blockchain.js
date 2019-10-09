@@ -1,126 +1,141 @@
-const Crypto = require("crypto-js");
+const CryptoJS = require("crypto-js");
 
 class Block {
-  constructor(index, hash, prevHash, time, data) {
+  constructor(index, hash, prevHash, timestamp, data) {
     this.index = index;
     this.hash = hash;
     this.prevHash = prevHash;
-    this.time = time;
+    this.timestamp = timestamp;
     this.data = data;
   }
 }
 
-// 처음 생성하는 블록
 const genesisBlock = new Block(
   0,
-  "E0E9589F700964303BFF8BA5E93EC27AB90772FB4BED930E4F2AF791013CA75B",
+  "2C4CEB90344F20CC4C77D626247AED3ED530C1AEE3E6E85AD494498B17414CAC",
   null,
-  15705221373411,
-  "start block!"
+  1520312194926 / 1000,
+  "This is the genesis!!"
 );
 
-// 블록체인, 최초 블럭을 넣은 상황
 let blockchain = [genesisBlock];
 
-const getLastBlock = () => blockchain[blockchain.length - 1];
+const getLatestBlock = () => blockchain[blockchain.length - 1];
 
-const getTimeStamp = () => new Date().getTime() / 1000;
+const getTimestamp = () => new Date().getTime() / 1000;
 
 const getBlockChain = () => blockchain;
 
-const createHash = (index, prevHash, time, data) =>
-  Crypto.SHA256(index + prevHash + time + JSON.stringify(data)).toString();
+const createHash = (index, prevHash, timestamp, data) =>
+  CryptoJS.SHA256(
+    index + prevHash + timestamp + JSON.stringify(data)
+  ).toString();
 
 const createNewBlock = data => {
-  const prevBlock = getLastBlock();
-  const newBlockIndex = prevBlock.index + 1;
-  const newTimestamp = getTimeStamp();
-  const newHash = createHash(newBlockIndex, prevBlock.hash, newTimestamp, data);
-  const newBlock = new Block(
+  const previousBlock = getLatestBlock();
+  const newBlockIndex = previousBlock.index + 1;
+  const newTimestamp = getTimestamp();
+  const newHash = createHash(
     newBlockIndex,
-    newHash,
-    prevBlock.hash,
+    previousBlock.hash,
     newTimestamp,
     data
   );
-  // 현재 체인에 새로운 블록 추가
+  const newBlock = new Block(
+    newBlockIndex,
+    newHash,
+    previousBlock.hash,
+    newTimestamp,
+    data
+  );
+  // 새 블록을 현 체인에 더하고
   addBlock(newBlock);
+  // 모든 p2p 서버에 새 블록으로 업데이트한다
+  require("./p2p").broadcastNewBlock();
   return newBlock;
 };
 
-const getBlockHash = block =>
-  createHash(block.index, block.prevHash, block.time, block.data);
+const getBlocksHash = block =>
+  createHash(block.index, block.prevHash, block.timestamp, block.data);
 
-// 블록의 구조 (각 프로퍼티 타입) 검증
-const isStructureValid = block =>
-  typeof block.index === "number" &&
-  typeof block.hash === "string" &&
-  typeof block.index === "number" &&
-  typeof block.time === "string" &&
-  typeof block.data === "string";
-
-// 새로 생성된 블록 검증
-const isBlockValid = (candidate, latest) => {
-  // 생성된 블록의 프로퍼티 타입 검증
-  if (!isStructureValid(candidate)) {
-    console.log("the candidate block invalid structure");
+// 블록 유효성 검증
+const isBlockValid = (candidateBlock, latestBlock) => {
+  // 블록의 각 프로퍼티 자료형 검증
+  if (!isStructureValid(candidateBlock)) {
+    console.log("The candidate block structure is not valid");
     return false;
-  }
-  // 생성된 블록이 최근 인덱스와 맞지 않을 경우
-  if (latest.index + 1 !== candidate.index) {
-    console.log("the candidate block invalid index");
+    // 블록의 인덱스 검증
+  } else if (latestBlock.index + 1 !== candidateBlock.index) {
+    console.log("The candidate block doesnt have a valid index");
     return false;
-  }
-  // 생성된 블록의 이전 해쉬가 현재 해쉬와 맞지 않을 경우
-  if (latest.hash !== candidate.prevHash) {
-    console.log("the candidate block invalid prevHash");
+    // 생성된 블록의 이전 해쉬가 현 블록의 해쉬와 맞는지
+  } else if (latestBlock.hash !== candidateBlock.prevHash) {
+    console.log(
+      "The prevHash of the candidate block is not the hash of the latest block"
+    );
     return false;
-  }
-  // 생성된 블록의 해쉬가 현재 내가 만든 해쉬와 다를 경우(다른 해쉬 함수를 쓴 경우)
-  if (getBlockHash(candidate) !== candidate.hash) {
-    console.log("the candidate block invalid create hash");
+    //블록의 해쉬 검증
+  } else if (getBlocksHash(candidateBlock) !== candidateBlock.hash) {
+    console.log("The hash of this block is invalid");
     return false;
   }
   return true;
 };
 
-// 체인 검증
-isChainValid = chain => {
-  const isGenesisValid = block =>
-    JSON.stringify(block) == JSON.stringify(genesisBlock);
-  // 새로 생성된 체인의 최초 블록이 rucky블록체인의 최초 블록과 다를 경우
-  if (!isGenesisValid(chain[0])) {
-    console.log("the candidateChain genesisBlock invalid");
+// 자료형 검증
+const isStructureValid = block =>
+  typeof block.index === "number" &&
+  typeof block.hash === "string" &&
+  typeof block.prevHash === "string" &&
+  typeof block.timestamp === "number" &&
+  typeof block.data === "string";
+
+const isChainValid = candidateChain => {
+  const isGenesisValid = block => {
+    return JSON.stringify(block) === JSON.stringify(genesisBlock);
+  };
+  // 최초 시작 블록 검증
+  if (!isGenesisValid(candidateChain[0])) {
+    console.log(
+      "The candidateChains's genesisBlock is not the same as our genesisBlock"
+    );
     return false;
   }
-  // 체인의 모든 블록이 유효한지 검증
-  for (let i = 1; i < chain.length; i++) {
-    if (!isBlockValid(chain[i], chain[i - 1])) {
+  // 모든 블록을 돌면서 블록 유효성 검증
+  for (let i = 1; i < candidateChain.length; i++) {
+    if (!isBlockValid(candidateChain[i], candidateChain[i - 1])) {
       return false;
     }
   }
   return true;
 };
 
-// 새로운 체인이 현 체인보다 길고 유효하다면 교체하는 함수
-const replaceChain = newChain => {
-  if (isChainValid(newChain) && newChain.length > getBlockChain().length) {
-    blockchain = newChain;
+const replaceChain = candidateChain => {
+  if (
+    isChainValid(candidateChain) &&
+    candidateChain.length > getBlockChain().length
+  ) {
+    blockchain = candidateChain;
     return true;
+  } else {
+    return false;
   }
-  return false;
 };
 
-const addBlock = newBlock => {
-  if (isBlockValid(newBlock, getLastBlock())) {
-    const chain = getBlockChain();
-    chain[chain.length] = newBlock;
+const addBlock = candidateBlock => {
+  if (isBlockValid(candidateBlock, getLatestBlock())) {
+    blockchain.push(candidateBlock);
     return true;
+  } else {
+    return false;
   }
-  return false;
 };
 
 module.exports = {
+  getLatestBlock,
   getBlockChain,
-  createNewBlock
+  createNewBlock,
+  isStructureValid,
+  addBlock,
+  replaceChain
 };
